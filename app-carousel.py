@@ -24,6 +24,8 @@ import time
 W, H = 380, 150
 STEP = 96.0          # шаг между иконками
 ICON = 54            # базовый размер иконки
+BG_A = 0.0           # прозрачность подложки виджета: 0.0 = полностью прозрачный фон
+NEON = (0.55, 1.00, 0.60)   # светлый неоновый зелёный (подсветка активной иконки)
 XA = os.environ.get("XAUTHORITY", "/home/orangepi/.Xauthority")
 ENV = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0"), "XAUTHORITY": XA}
 
@@ -123,27 +125,35 @@ class Carousel(Gtk.Window):
     def _animate(self):
         if abs(self._target - self._pos) > 0.002:
             self._pos += (self._target - self._pos) * 0.22
-            self.queue_draw()
         elif self._pos != self._target:
             self._pos = self._target
-            self.queue_draw()
+        # постоянная перерисовка — для мягкой пульсации неоновой подсветки
+        self.queue_draw()
         return True
 
     # ---- отрисовка ----
     def on_draw(self, w, cr):
-        # фон
-        cr.set_source_rgba(0.03, 0.035, 0.05, 0.82)
-        rounded_rect(cr, 0, 0, W, H, 20)
-        cr.fill()
-        # рамка
-        cr.set_source_rgba(0.20, 0.68, 1.0, 0.35)
-        cr.set_line_width(1.2)
-        rounded_rect(cr, 0.6, 0.6, W - 1.2, H - 1.2, 20)
-        cr.stroke()
+        # Фон — полностью прозрачный (виджет «парит»: видны только иконки)
+        # Лёгкую подложку можно вернуть, задав BG_A > 0
+        if BG_A > 0:
+            cr.set_source_rgba(0.03, 0.035, 0.05, BG_A)
+            rounded_rect(cr, 0, 0, W, H, 20)
+            cr.fill()
 
         cx = W / 2.0
         cy = H / 2.0 - 6
         self._zones = []
+
+        # ---- неоновая зелёная подсветка центральной иконки (с мягкой пульсацией) ----
+        pulse = 0.85 + 0.15 * math.sin(time.time() * 2.4)
+        gc = NEON
+        glow = cairo.RadialGradient(cx, cy + 4, ICON * 0.18, cx, cy + 4, ICON * 1.35)
+        glow.add_color_stop_rgba(0.0, gc[0], gc[1], gc[2], 0.55 * pulse)
+        glow.add_color_stop_rgba(0.45, gc[0], gc[1], gc[2], 0.28 * pulse)
+        glow.add_color_stop_rgba(1.0, gc[0], gc[1], gc[2], 0.0)
+        cr.set_source(glow)
+        cr.arc(cx, cy + 4, ICON * 1.35, 0, 2 * math.pi)
+        cr.fill()
 
         # иконки: рисуем дальние первыми
         order = sorted(range(len(APPS)), key=lambda i: -abs(i - self._pos))
@@ -156,6 +166,13 @@ class Carousel(Gtk.Window):
             size = ICON * scale
             alpha = max(0.15, 1.0 - abs(d) * 0.42)
             y = cy - size / 2 + abs(d) * 5
+
+            # у центральной иконки — неоновая окантовка
+            if abs(d) < 0.5:
+                cr.set_source_rgba(gc[0], gc[1], gc[2], 0.85 * pulse)
+                cr.set_line_width(2.0)
+                cr.arc(x, cy + abs(d) * 5, size * 0.60, 0, 2 * math.pi)
+                cr.stroke()
 
             pb = self.pix[i]
             if pb:
@@ -170,20 +187,20 @@ class Carousel(Gtk.Window):
                 cr.set_source_rgba(0.25, 0.3, 0.4, alpha)
                 cr.fill()
 
-            # подпись центральной
+            # подпись центральной — неоновым зелёным
             if abs(d) < 0.5:
                 cr.select_font_face("Noto Sans", cairo.FONT_SLANT_NORMAL,
                                     cairo.FONT_WEIGHT_BOLD)
                 cr.set_font_size(12)
                 ext = cr.text_extents(APPS[i][0])
-                cr.set_source_rgb(0.95, 0.96, 0.98)
+                cr.set_source_rgba(gc[0], gc[1], gc[2], 0.95)
                 cr.move_to(cx - ext.width / 2, H - 10)
                 cr.show_text(APPS[i][0])
 
             self._zones.append((x - size / 2 - 4, x + size / 2 + 4, i))
 
         # стрелки-подсказки
-        cr.set_source_rgba(0.55, 0.62, 0.72, 0.75)
+        cr.set_source_rgba(0.55, 0.62, 0.72, 0.6)
         cr.set_font_size(17)
         cr.move_to(11, cy + 6)
         cr.show_text("‹")
@@ -195,13 +212,15 @@ class Carousel(Gtk.Window):
         total = n * 12
         x0 = cx - total / 2 + 6
         for i in range(n):
-            cr.arc(x0 + i * 12, H - 22, 3 if i == round(self._pos) else 2.2, 0, 2 * math.pi)
             if i == round(self._pos):
-                cr.set_source_rgba(0.20, 0.68, 1.0, 0.95)
+                cr.arc(x0 + i * 12, H - 22, 3.2, 0, 2 * math.pi)
+                cr.set_source_rgba(gc[0], gc[1], gc[2], 0.95)
             else:
-                cr.set_source_rgba(0.45, 0.5, 0.58, 0.7)
+                cr.arc(x0 + i * 12, H - 22, 2.2, 0, 2 * math.pi)
+                cr.set_source_rgba(0.45, 0.5, 0.58, 0.6)
             cr.fill()
         return False
+
 
     # ---- события ----
     def on_scroll(self, w, ev):
