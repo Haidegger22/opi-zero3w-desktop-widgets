@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=App Carousel
+Comment=Виджет-карусель приложений на рабочем столе
+Exec=/home/orangepi/.local/bin/app-carousel.py
+X-GNOME-Autostart-enabled=true
+Terminal=false

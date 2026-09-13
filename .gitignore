@@ -1,0 +1,11 @@
+# Секреты и мусор — не публиковать
+.env
+*.env
+*.pem
+*.key
+id_*
+*_askpass.sh
+__pycache__/
+*.pyc
+.venv/
+*.log
