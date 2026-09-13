@@ -97,6 +97,8 @@ class CarouselV(Gtk.Window):
         self._target = 0.0
         self._press = None
         self._swiped = False
+        self._bump_i = None    # иконка, которую тапнули (анимация нажатия)
+        self._bump_t = 0.0     # время старта анимации нажатия
         self._start_pos = 0.0
         self._zones = []
 
@@ -179,7 +181,7 @@ class CarouselV(Gtk.Window):
             if abs(d) > 2.4:
                 continue
             scale = max(0.35, 1.0 - abs(d) * 0.30)
-            size = ICON * scale
+            size = ICON * scale * self._bump_scale(i)
             alpha = max(0.15, 1.0 - abs(d) * 0.42)
             y = cy + d * STEP
             x = cx + abs(d) * 6          # лёгкий сдвиг вправо для «глубины»
@@ -311,10 +313,23 @@ class CarouselV(Gtk.Window):
             self._handle_tap(x0, y0, zones)
         return True
 
+    def _bump_scale(self, i):
+        if self._bump_i != i:
+            return 1.0
+        dt = time.time() - self._bump_t
+        T = 0.34
+        if dt >= T:
+            self._bump_i = None
+            return 1.0
+        return 1.0 + 0.22 * math.sin(math.pi * dt / T)
+
     def _handle_tap(self, x, y, zones):
         for y1, y2, i in zones:
             # тап засчитываем только в колонке иконок (не по названию слева)
             if y1 <= y <= y2 and abs(x - CX) < 46:
+                self._bump_i = i
+                self._bump_t = time.time()
+                print(f"[bump] нажатие на иконку {i} ({APPS[i][0]})", flush=True)
                 if abs(i - self._pos) < 0.5:
                     subprocess.Popen(APPS[i][2], shell=True, env=ENV)
                 else:
