@@ -37,7 +37,9 @@ ENV = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0"), "XAUTHORITY": X
 
 # подпись, файл иконки, команда запуска
 APPS = [
-    ("Chromium", "/usr/share/icons/hicolor/256x256/apps/chromium.png", "chromium"),
+    ("Chromium", "/usr/share/icons/hicolor/256x256/apps/chromium.png",
+     "chromium --disk-cache-size=1073741824 --proxy-server=http://127.0.0.1:7890 "
+     "--proxy-bypass-list='localhost;127.0.0.1;192.168.*;10.*;<local>'"),
     ("Telegram", "/usr/share/pixmaps/telegram.png", "flatpak run org.telegram.desktop"),
     ("Терминал", "/usr/share/icons/Papirus/48x48/apps/gnome-terminal.svg", "mate-terminal"),
     ("RetroArch", "/usr/share/pixmaps/retroarch.png",
@@ -107,7 +109,7 @@ class CarouselV(Gtk.Window):
         self.connect("button-release-event", self.on_release)
         self.connect("motion-notify-event", self.on_motion)
         self.connect("scroll-event", self.on_scroll)
-        GLib.timeout_add(16, self._animate)
+        GLib.timeout_add(16, self._animate)   # ~60 fps — плавная комета
 
     def _animate(self):
         if abs(self._target - self._pos) > 0.002:
