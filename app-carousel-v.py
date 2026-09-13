@@ -321,7 +321,7 @@ class CarouselV(Gtk.Window):
         if dt >= T:
             self._bump_i = None
             return 1.0
-        return 1.0 + 0.35 * math.sin(math.pi * dt / T)
+        return 1.0 + 0.40 * math.sin(math.pi * dt / T)
 
     def _handle_tap(self, x, y, zones):
         for y1, y2, i in zones:
