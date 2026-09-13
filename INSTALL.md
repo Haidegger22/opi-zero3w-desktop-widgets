@@ -126,10 +126,13 @@ ENV = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0"), "XAUTHORITY": X
 # подпись, файл иконки, команда запуска
 APPS = [
     ("Chromium", "/usr/share/icons/hicolor/256x256/apps/chromium.png",
-     "chromium --disk-cache-size=1073741824 --proxy-server=http://127.0.0.1:7890 "
+     "env XCURSOR_THEME=comet-hidden chromium --disk-cache-size=1073741824 "
+     "--proxy-server=http://127.0.0.1:7890 "
      "--proxy-bypass-list='localhost;127.0.0.1;192.168.*;10.*;<local>'"),
     ("Telegram", "/usr/share/pixmaps/telegram.png", "flatpak run org.telegram.desktop"),
     ("Терминал", "/usr/share/icons/Papirus/48x48/apps/gnome-terminal.svg", "mate-terminal"),
+    ("Домашняя папка", "/usr/share/icons/mate/256x256/places/user-home.png",
+     "caja /home/orangepi"),
     ("RetroArch", "/usr/share/pixmaps/retroarch.png",
      "bash /home/orangepi/.openclaw/workspace/retrogame.sh"),
 ]
@@ -431,6 +434,7 @@ if __name__ == "__main__":
     win.connect("destroy", Gtk.main_quit)
     win.show_all()
     Gtk.main()
+
 SCRIPT_EOF
 chmod +x $HOME/.local/bin/app-carousel-v.py 2>/dev/null || true
 ```
