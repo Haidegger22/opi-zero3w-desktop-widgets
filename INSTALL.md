@@ -3,14 +3,41 @@
 Для Debian 13 + MATE (X11), экран 1024×600 (Orange Pi Zero 3W).
 Каждый блок можно вставить в терминал целиком.
 
-## Шаг 1. Зависимости
+---
+
+## Быстрый путь (рекомендуется) — установщик
+
+```bash
+git clone https://github.com/Haidegger22/opi-zero3w-desktop-widgets.git
+cd opi-zero3w-desktop-widgets
+./install.sh                 # проверит зависимости, скопирует скрипты, поставит автозапуск
+# ./install.sh --yes         # + доустановить недостающие пакеты через apt
+# ./install.sh --run         # + сразу запустить виджеты
+# ./install.sh --no-autostart  # без автозапуска
+```
+
+Что делает `install.sh`:
+
+1. проверяет `gi` / `cairo` / `PIL` / GTK3 и (с `--yes`) доустанавливает недостающее;
+2. копирует скрипты в `~/.local/bin` с правом на запуск;
+3. ставит автозапуск в `~/.config/autostart`, **подставляя твой `$HOME`** вместо `/home/orangepi`;
+4. предупреждает, если не найден `pactl` (без него шторка громкости не меняет звук);
+5. с `--run` запускает карусель, температуру и шторку.
+
+---
+
+## То же самое вручную
+
+### Шаг 1. Зависимости
 
 ```bash
 sudo apt update
-sudo apt install -y python3-gi python3-gi-cairo gir1.2-gtk-3.0 python3-pil
+sudo apt install -y python3-gi python3-gi-cairo gir1.2-gtk-3.0 python3-pil librsvg2-common
+# pactl (для шторки громкости) — один из вариантов:
+sudo apt install -y pulseaudio-utils      # или pipewire-pulse
 ```
 
-## Шаг 2. Скачать репозиторий
+### Шаг 2. Скачать репозиторий
 
 ```bash
 cd ~
@@ -18,33 +45,15 @@ git clone https://github.com/Haidegger22/opi-zero3w-desktop-widgets.git
 cd ~/opi-zero3w-desktop-widgets
 ```
 
-## Шаг 3. Карусель приложений
+### Шаг 3. Скрипты
 
 ```bash
 mkdir -p ~/.local/bin
-cp app-carousel-v.py ~/.local/bin/
-chmod +x ~/.local/bin/app-carousel-v.py
+install -m 755 app-carousel-v.py app-carousel.py cpu-temp-float.py volume-drawer.py ~/.local/bin/
+ls -l ~/.local/bin/
 ```
 
-## Шаг 4. Индикатор температуры CPU
-
-```bash
-cp cpu-temp-float.py ~/.local/bin/
-chmod +x ~/.local/bin/cpu-temp-float.py
-```
-
-## Шаг 5. Шторка громкости (volume-drawer)
-
-```bash
-cp volume-drawer.py ~/.local/bin/
-chmod +x ~/.local/bin/volume-drawer.py
-```
-
-Свайп снизу вверх (или тап по полоске) — выдвигается ползунок громкости
-с тёмным жидким стеклом (как у `cpu-temp-float`). Через 2 с бездействия
-шторка прячется обратно.
-
-## Шаг 6. Автозапуск (пути подставятся автоматически)
+### Шаг 4. Автозапуск (пути подставляются автоматически)
 
 ```bash
 mkdir -p ~/.config/autostart
@@ -52,55 +61,74 @@ cd ~/opi-zero3w-desktop-widgets
 for f in autostart/*.desktop; do
   sed "s|/home/orangepi|$HOME|g" "$f" > ~/.config/autostart/"$(basename "$f")"
 done
-ls ~/.config/autostart/
+cat ~/.config/autostart/app-carousel.desktop   # проверь, что путь твой
 ```
 
-## Шаг 7. Запустить сейчас (без перезагрузки)
+### Шаг 5. Запустить сейчас (без перезагрузки)
 
 ```bash
-DISPLAY=:0 ~/.local/bin/app-carousel-v.py &   # карусель
-DISPLAY=:0 ~/.local/bin/cpu-temp-float.py &   # температура
-DISPLAY=:0 ~/.local/bin/volume-drawer.py &    # шторка громкости
+export DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority
+~/.local/bin/app-carousel-v.py &   # карусель (вертикальная, основная)
+~/.local/bin/cpu-temp-float.py &   # температура CPU
+~/.local/bin/volume-drawer.py &    # шторка громкости
 ```
 
-## Шаг 8. Проверка
+### Шаг 6. Проверка
 
-- Карусель должна появиться **справа по центру** рабочего стола
-- Виджет температуры — **правый нижний угол** рабочего стола
-- Шторка громкости — **полоска внизу по центру**, тап/свайп вверх выдвигает панель
-- Проверить, что запущены:
+- Карусель появляется **справа по центру**, окна её перекрывают (тип окна `DOCK`);
+- виджет температуры — **правый нижний угол**, обновление раз в 5 с;
+- шторка громкости — **полоска внизу по центру**, тап/свайп вверх выдвигает панель.
+
 ```bash
 pgrep -af "app-carousel-v|cpu-temp-float|volume-drawer"
-```
-- Проверить окно карусели (тип должен быть DOCK):
-```bash
 DISPLAY=:0 xdotool search --name "app-carousel" | head -1 | xargs -I{} xprop -id {} _NET_WM_WINDOW_TYPE
 ```
+
+---
 
 ## Важно
 
 - Требуется **X11** (не Wayland) и рабочий стол MATE.
-- Chromium в карусели запускается **через прокси** `127.0.0.1:7890` — если у тебя другой порт,
-  поправь команду в `app-carousel-v.py` (константа `APPS`).
-- Иконки приложений берутся по путям из `APPS` — они должны существовать в системе.
+- Chromium открывается **через прокси** `127.0.0.1:7890` (FlClashX/mihomo) — порт задаётся
+  константой `CHROMIUM_PROXY` в начале `app-carousel-v.py`. **Если прокси у тебя нет — поставь пустую
+  строку** `CHROMIUM_PROXY = ""`, иначе Chromium не сможет открывать страницы.
+- Иконки приложений берутся по путям из списка `APPS` — они должны существовать в системе.
+- RetroArch запускается командой `RETRO_CMD` (по умолчанию `retroarch`) — если у тебя свой
+  скрипт запуска, укажи его путь в этой константе.
 
 ## Откат
 
 ```bash
-pkill -f app-carousel-v.py
-pkill -f cpu-temp-float.py
-pkill -f volume-drawer.py
-rm -f ~/.config/autostart/app-carousel.desktop ~/.config/autostart/cpu-temp-float.desktop ~/.config/autostart/volume-drawer.desktop
+pkill -f app-carousel-v.py; pkill -f cpu-temp-float.py; pkill -f volume-drawer.py
+rm -f ~/.config/autostart/app-carousel.desktop \
+      ~/.config/autostart/cpu-temp-float.desktop \
+      ~/.config/autostart/volume-drawer.desktop
+rm -f ~/.local/bin/{app-carousel-v.py,app-carousel.py,cpu-temp-float.py,volume-drawer.py}
 ```
-## Полный код файлов (установка без git)
 
-Вставляй блоки по порядку — каждый создаёт файл сам.
+## Если нет git
 
-### 1. Карусель (вертикальная)
+**Вариант А — архив:**
 
 ```bash
-mkdir -p $(dirname $HOME/.local/bin/app-carousel-v.py)
-cat > $HOME/.local/bin/app-carousel-v.py << 'SCRIPT_EOF'
+cd ~
+wget https://github.com/Haidegger22/opi-zero3w-desktop-widgets/archive/refs/heads/main.zip
+unzip main.zip && cd opi-zero3w-desktop-widgets-main
+./install.sh --yes --run
+```
+
+**Вариант Б — копипаст:** полный код всех файлов — ниже. Раздел **сгенерирован** из файлов
+репозитория скриптом `tools/update-install-listings.sh` (после правки скриптов запусти его,
+чтобы инструкция не расходилась с кодом).
+
+<!-- AUTO-LISTINGS:START -->
+
+> Раздел сгенерирован из файлов репозитория. Не правь его руками — правь файлы
+> и запусти `tools/update-install-listings.sh`.
+
+### `app-carousel-v.py`
+
+```python
 #!/usr/bin/env python3
 """
 Виджет-карусель приложений — ВЕРТИКАЛЬНАЯ версия (приклеена справа)
@@ -135,21 +163,33 @@ BG_A = 0.0           # прозрачность подложки (0.0 = фон �
 NEON = (0.55, 1.00, 0.60)   # светлый неоновый зелёный
 MARGIN_RIGHT = 6     # отступ от правого края экрана
 
-XA = os.environ.get("XAUTHORITY", "/home/orangepi/.Xauthority")
+# --- персональные настройки (правь под себя) ---
+CHROMIUM_PROXY = "http://127.0.0.1:7890"  # прокси для Chromium; "" — без прокси (нет FlClash/mihomo)
+CHROMIUM_CACHE = "1073741824"             # размер дискового кэша Chromium, байт (1 ГБ)
+XCURSOR_THEME  = "comet-hidden"           # тема курсора (скрытый курсор-комета); "" — системная
+RETRO_CMD      = "retroarch"              # команда запуска RetroArch (свой путь/скрипт — укажи здесь)
+HOME_DIR       = os.path.expanduser("~")  # домашний каталог пользователя
+
+XA = os.environ.get("XAUTHORITY", os.path.join(HOME_DIR, ".Xauthority"))
 ENV = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0"), "XAUTHORITY": XA}
+
+# команда Chromium собирается из настроек выше
+_chromium = "chromium"
+if XCURSOR_THEME:
+    _chromium = f"env XCURSOR_THEME={XCURSOR_THEME} " + _chromium
+_chromium += f" --disk-cache-size={CHROMIUM_CACHE}"
+if CHROMIUM_PROXY:
+    _chromium += (f" --proxy-server={CHROMIUM_PROXY}"
+                  " --proxy-bypass-list='localhost;127.0.0.1;192.168.*;10.*;<local>'")
 
 # подпись, файл иконки, команда запуска
 APPS = [
-    ("Chromium", "/usr/share/icons/hicolor/256x256/apps/chromium.png",
-     "env XCURSOR_THEME=comet-hidden chromium --disk-cache-size=1073741824 "
-     "--proxy-server=http://127.0.0.1:7890 "
-     "--proxy-bypass-list='localhost;127.0.0.1;192.168.*;10.*;<local>'"),
+    ("Chromium", "/usr/share/icons/hicolor/256x256/apps/chromium.png", _chromium),
     ("Telegram", "/usr/share/pixmaps/telegram.png", "flatpak run org.telegram.desktop"),
     ("Терминал", "/usr/share/icons/Papirus/48x48/apps/gnome-terminal.svg", "mate-terminal"),
     ("Домашняя папка", "/usr/share/icons/mate/256x256/places/user-home.png",
-     "caja /home/orangepi"),
-    ("RetroArch", "/usr/share/pixmaps/retroarch.png",
-     "bash /home/orangepi/.openclaw/workspace/retrogame.sh"),
+     "caja ~"),
+    ("RetroArch", "/usr/share/pixmaps/retroarch.png", RETRO_CMD),
 ]
 
 
@@ -217,7 +257,7 @@ class CarouselV(Gtk.Window):
         self.connect("button-release-event", self.on_release)
         self.connect("motion-notify-event", self.on_motion)
         self.connect("scroll-event", self.on_scroll)
-        GLib.timeout_add(16, self._animate)   # ~60 fps — плавная комета
+        GLib.timeout_add(33, self._animate)   # ~30 fps — плавная комета, мягче по CPU
 
     def _animate(self):
         if abs(self._target - self._pos) > 0.002:
@@ -449,16 +489,11 @@ if __name__ == "__main__":
     win.connect("destroy", Gtk.main_quit)
     win.show_all()
     Gtk.main()
-
-SCRIPT_EOF
-chmod +x $HOME/.local/bin/app-carousel-v.py 2>/dev/null || true
 ```
 
-### 2. Карусель (горизонтальная, опционально)
+### `app-carousel.py`
 
-```bash
-mkdir -p $(dirname $HOME/.local/bin/app-carousel.py)
-cat > $HOME/.local/bin/app-carousel.py << 'SCRIPT_EOF'
+```python
 #!/usr/bin/env python3
 """
 Виджет-карусель приложений для рабочего стола (GTK3 + Cairo)
@@ -487,7 +522,11 @@ STEP = 96.0          # шаг между иконками
 ICON = 54            # базовый размер иконки
 BG_A = 0.0           # прозрачность подложки виджета: 0.0 = полностью прозрачный фон
 NEON = (0.55, 1.00, 0.60)   # светлый неоновый зелёный (подсветка активной иконки)
-XA = os.environ.get("XAUTHORITY", "/home/orangepi/.Xauthority")
+# --- персональные настройки (правь под себя) ---
+RETRO_CMD = "retroarch"                  # команда запуска RetroArch (свой путь/скрипт — укажи здесь)
+HOME_DIR  = os.path.expanduser("~")      # домашний каталог пользователя
+
+XA = os.environ.get("XAUTHORITY", os.path.join(HOME_DIR, ".Xauthority"))
 ENV = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0"), "XAUTHORITY": XA}
 
 APPS = [
@@ -497,8 +536,7 @@ APPS = [
      "flatpak run org.telegram.desktop"),
     ("Терминал", "/usr/share/icons/Papirus/48x48/apps/gnome-terminal.svg",
      "mate-terminal"),
-    ("RetroArch", "/usr/share/pixmaps/retroarch.png",
-     "bash /home/orangepi/.openclaw/workspace/retrogame.sh"),
+    ("RetroArch", "/usr/share/pixmaps/retroarch.png", RETRO_CMD),
 ]
 
 
@@ -761,15 +799,11 @@ class Carousel(Gtk.Window):
 if __name__ == "__main__":
     Carousel().show_all()
     Gtk.main()
-SCRIPT_EOF
-chmod +x $HOME/.local/bin/app-carousel.py 2>/dev/null || true
 ```
 
-### 3. Индикатор температуры
+### `cpu-temp-float.py`
 
-```bash
-mkdir -p $(dirname $HOME/.local/bin/cpu-temp-float.py)
-cat > $HOME/.local/bin/cpu-temp-float.py << 'SCRIPT_EOF'
+```python
 #!/usr/bin/env python3
 """
 cpu-temp-float.py — плавающий виджет температуры CPU на рабочем столе.
@@ -948,64 +982,33 @@ if __name__ == "__main__":
     win = TempFloat()
     win.show_all()
     Gtk.main()
-SCRIPT_EOF
-chmod +x $HOME/.local/bin/cpu-temp-float.py 2>/dev/null || true
 ```
 
-### 4. Автозапуск карусели
+### `volume-drawer.py`
 
-```bash
-mkdir -p $(dirname $HOME/.config/autostart/app-carousel.desktop)
-cat > $HOME/.config/autostart/app-carousel.desktop << 'SCRIPT_EOF'
-[Desktop Entry]
-Type=Application
-Name=App Carousel (вертикальная)
-Comment=Виджет-карусель приложений на рабочем столе справа (неоновая комета)
-Exec=/home/orangepi/.local/bin/app-carousel-v.py
-X-GNOME-Autostart-enabled=true
-Terminal=false
-SCRIPT_EOF
-chmod +x $HOME/.config/autostart/app-carousel.desktop 2>/dev/null || true
-```
-
-### 5. Автозапуск температуры
-
-```bash
-mkdir -p $(dirname $HOME/.config/autostart/cpu-temp-float.desktop)
-cat > $HOME/.config/autostart/cpu-temp-float.desktop << 'SCRIPT_EOF'
-[Desktop Entry]
-Type=Application
-Name=CPU Temp Widget
-Comment=Плавающий виджет температуры CPU
-Exec=/home/orangepi/.local/bin/cpu-temp-float.py
-X-GNOME-Autostart-enabled=true
-Terminal=false
-SCRIPT_EOF
-chmod +x $HOME/.config/autostart/cpu-temp-float.desktop 2>/dev/null || true
-```
-
-
-### 6. Шторка громкости (volume-drawer)
-
-```bash
-mkdir -p $(dirname $HOME/.local/bin/volume-drawer.py)
-cat > $HOME/.local/bin/volume-drawer.py << 'SCRIPT_EOF'
+```python
 #!/usr/bin/env python3
 # Шторка громкости снизу экрана: полоска с неоновым ореолом,
 # свайп вверх — выдвигается ползунок, 2 с бездействия — прячется.
 import subprocess, sys, time, math
-from PIL import Image, ImageFilter
-from Xlib import X as XLIBX
+from PIL import Image, ImageFilter, ImageEnhance
 import gi
 gi.require_version("Gtk", "3.0")
 import cairo
 from gi.repository import Gtk, Gdk, GLib, GdkPixbuf
 
 W, H = 300, 104          # окно шторки
-BAR_W, BAR_H = 240, 5    # полоска внизу
+BAR_W, BAR_H = 240, 3    # полоска внизу — тонкая, не бросается в глаза
 PANEL_H = 74             # высота выдвижной панели
 NEON = (0.55, 1.00, 0.60)
 HIDE_AFTER = 2.0         # с бездействия до автоскрытия
+
+# --- параметры «жидкого стекла» (iOS liquid glass) ---
+BLUR = 16                # радиус размытия подложки (больше = мягче, «дороже»)
+SAT = 1.65               # усиление насыщенности фона — подпись iOS-стекла
+BRIGHT = 1.06            # лёгкий подъём яркости подложки
+GLASS_A = 0.90           # непрозрачность самого стекла (размытый фон)
+TINT_A = 0.60            # тёмная тонировка поверх стекла (dark mode material)
 
 
 def get_volume():
@@ -1123,19 +1126,22 @@ class Drawer(Gtk.Window):
         e = self.open
         dy = PANEL_H * e        # насколько всё поднялось (свайп вверх)
         # ---- полоска с неоновым ореолом (едет вверх вместе со свайпом) ----
+        # тонкая и приглушённая: ореол мягкий, ядро не «светит в глаза»
         bx, by = (W - BAR_W) / 2, H - BAR_H - 8 - dy
-        for grow, al in ((8.0, 0.08), (5.0, 0.16), (2.5, 0.30)):
+        for grow, al in ((4.5, 0.05), (2.6, 0.09), (1.3, 0.16)):
             rr(cr, bx - grow, by - grow, BAR_W + 2 * grow, BAR_H + 2 * grow, (BAR_H + 2 * grow) / 2)
             cr.set_source_rgba(NEON[0], NEON[1], NEON[2], al)
             cr.fill()
         rr(cr, bx, by, BAR_W, BAR_H, BAR_H / 2)
-        cr.set_source_rgba(0.88, 1.0, 0.90, 0.95)
+        cr.set_source_rgba(0.80, 0.96, 0.83, 0.82)
         cr.fill()
         if e > 0.02:
             self._draw_panel(cr, e)
 
     def _grab_bg(self):
-        """Снимок фона под окном + размытие — основа для жидкого стекла."""
+        """Снимок фона под окном: размытие + насыщенность + яркость.
+        Размытие и подъём насыщенности — то, что делает стекло «жидким» (как в iOS):
+        фон не просто мутнеет, а превращается в мягкое, но живое цветное пятно."""
         try:
             rw = Gdk.get_default_root_window()
             x, y = self.get_window().get_root_coords(0, 0)
@@ -1144,7 +1150,9 @@ class Drawer(Gtk.Window):
                 return False
             img = Image.frombytes("RGB", (W, H), pb.get_pixels(), "raw", "RGB",
                                   pb.get_rowstride())
-            img = img.filter(ImageFilter.GaussianBlur(9))
+            img = img.filter(ImageFilter.GaussianBlur(BLUR))       # размытие подложки
+            img = ImageEnhance.Color(img).enhance(SAT)             # насыщенность (signature iOS)
+            img = ImageEnhance.Brightness(img).enhance(BRIGHT)     # лёгкий подъём яркости
             data = img.tobytes()
             self.bg = GdkPixbuf.Pixbuf.new_from_bytes(
                 GLib.Bytes.new(data), GdkPixbuf.Colorspace.RGB, False, 8, W, H, W * 3)
@@ -1153,45 +1161,66 @@ class Drawer(Gtk.Window):
         return False
 
     def _draw_panel(self, cr, e):
-        # ЖИДКОЕ СТЕКЛО на тёмной основе с объёмом (мягкие переходы между слоями)
+        # iOS LIQUID GLASS: тень → стекло → тонировка → спекуляр/линза → кромки
         ph = PANEL_H * e
         by = H - BAR_H - 8 - PANEL_H * e
         py = by + BAR_H + 6
-        # 1) тёмный полупрозрачный фон — основа как у cpu-temp-float
-        cr.set_source_rgba(0.08, 0.09, 0.12, 0.72 * e)
-        rr(cr, 16, py, W - 32, ph, 14)
-        cr.fill()
-        # 2) размытый снимок фона — даёт эффект "живого" стекла под панелью
+        R = 14
+        # 0) ВНЕШНЯЯ ТЕНЬ — стекло «висит» над фоном, а не приклеено к нему
+        for off, al, lw in ((0, 0.10, 10.0), (2.0, 0.13, 6.0), (4.0, 0.15, 3.0)):
+            rr(cr, 16 - lw / 2, py - lw / 2 + off, W - 32 + lw, ph + lw, R + lw / 2)
+            cr.set_source_rgba(0, 0, 0, al * e)
+            cr.fill()
+        # 1) СТЕКЛО: размытая и насыщенная подложка — сквозь стекло ВИДНО фон, но мягко
         if self.bg:
             cr.save()
-            rr(cr, 16, py, W - 32, ph, 14)
+            rr(cr, 16, py, W - 32, ph, R)
             cr.clip()
             Gdk.cairo_set_source_pixbuf(cr, self.bg, 0, 0)
-            cr.paint_with_alpha(0.30 * e)
+            cr.paint_with_alpha(GLASS_A * e)
             cr.restore()
-        # 3) ОБЩИЙ вертикальный градиент: свет сверху → тень снизу (максимально мягко)
-        # 11 точек: каждая следующая — плавное продолжение предыдущей, без скачков
-        grad = cairo.LinearGradient(0, py, 0, py + ph)
-        grad.add_color_stop_rgba(0.00, 1, 1, 1, 0.22 * e)   # свет у кромки
-        grad.add_color_stop_rgba(0.10, 1, 1, 1, 0.16 * e)   # мягкий спад
-        grad.add_color_stop_rgba(0.22, 1, 1, 1, 0.10 * e)   # продолжение спада
-        grad.add_color_stop_rgba(0.36, 1, 1, 1, 0.05 * e)   # почти 0
-        grad.add_color_stop_rgba(0.50, 1, 1, 1, 0.02 * e)   # еле виден
-        grad.add_color_stop_rgba(0.55, 0, 0, 0, 0.02 * e)   # мягкий старт тени
-        grad.add_color_stop_rgba(0.65, 0, 0, 0, 0.06 * e)   # тень нарастает медленно
-        grad.add_color_stop_rgba(0.75, 0, 0, 0, 0.12 * e)   # плавно
-        grad.add_color_stop_rgba(0.85, 0, 0, 0, 0.18 * e)   # плавно
-        grad.add_color_stop_rgba(0.95, 0, 0, 0, 0.24 * e)   # плавно
-        grad.add_color_stop_rgba(1.00, 0, 0, 0, 0.28 * e)   # тёмная кромка снизу
-        cr.set_source(grad)
-        rr(cr, 16, py, W - 32, ph, 14)
+        # 2) ТОНИРОВКА: тёмный «дымчатый» слой (тёмная тема iOS) — держит стекло тёмным
+        cr.set_source_rgba(0.05, 0.06, 0.10, TINT_A * e)
+        rr(cr, 16, py, W - 32, ph, R)
         cr.fill()
-        # контур панели со свечением (фона нет — ничего не загромождает)
-        for lw, al in ((5.0, 0.10), (3.0, 0.18), (1.5, 0.55)):
-            rr(cr, 16, py, W - 32, ph, 14)
+        # 3) ОБЪЁМ одним градиентом (10 точек — без швов и полос):
+        #    спекуляр сверху (свет ловится кромкой) → линза снизу (глубина)
+        g = cairo.LinearGradient(0, py, 0, py + ph)
+        g.add_color_stop_rgba(0.00, 1, 1, 1, 0.34 * e)      # яркий спекуляр у кромки
+        g.add_color_stop_rgba(0.08, 1, 1, 1, 0.22 * e)
+        g.add_color_stop_rgba(0.18, 1, 1, 1, 0.12 * e)
+        g.add_color_stop_rgba(0.30, 1, 1, 1, 0.05 * e)
+        g.add_color_stop_rgba(0.44, 1, 1, 1, 0.01 * e)
+        g.add_color_stop_rgba(0.56, 0, 0, 0, 0.02 * e)      # мягкий переход в линзу
+        g.add_color_stop_rgba(0.68, 0, 0, 0, 0.08 * e)
+        g.add_color_stop_rgba(0.80, 0, 0, 0, 0.16 * e)
+        g.add_color_stop_rgba(0.90, 0, 0, 0, 0.23 * e)
+        g.add_color_stop_rgba(1.00, 0, 0, 0, 0.30 * e)      # тёмная кромка снизу
+        cr.set_source(g)
+        rr(cr, 16, py, W - 32, ph, R)
+        cr.fill()
+        # 4) Неоновый контур (наш стиль) — мягче, чтобы не спорить с бликом кромки
+        for lw, al in ((6.0, 0.07), (3.5, 0.14), (2.0, 0.38)):
+            rr(cr, 16, py, W - 32, ph, R)
             cr.set_line_width(lw)
             cr.set_source_rgba(NEON[0], NEON[1], NEON[2], al * e)
             cr.stroke()
+        # 5) ЯРКАЯ КРОМКА сверху — «край стекла» (подпись iOS: тонкий белый блик)
+        cr.set_line_width(1.2)
+        cr.set_source_rgba(1, 1, 1, 0.40 * e)
+        rr(cr, 16.6, py + 0.6, W - 33.2, ph - 1.2, R - 0.6)
+        cr.stroke()
+        # 6) БОКОВЫЕ КРОМКИ — свет по левому и правому краю (линза по горизонтали)
+        glr = cairo.LinearGradient(16, 0, W - 16, 0)
+        glr.add_color_stop_rgba(0.00, 1, 1, 1, 0.20 * e)    # левая кромка светится
+        glr.add_color_stop_rgba(0.18, 1, 1, 1, 0.04 * e)
+        glr.add_color_stop_rgba(0.50, 1, 1, 1, 0.00)
+        glr.add_color_stop_rgba(0.82, 1, 1, 1, 0.04 * e)
+        glr.add_color_stop_rgba(1.00, 1, 1, 1, 0.20 * e)    # правая кромка светится
+        cr.set_line_width(1.4)
+        cr.set_source(glr)
+        rr(cr, 16.8, py + 0.8, W - 33.6, ph - 1.6, R - 0.8)
+        cr.stroke()
         # надпись — со свечением (как название в карусели)
         cr.select_font_face("Noto Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
         cr.set_font_size(13)
@@ -1287,16 +1316,147 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-SCRIPT_EOF
-chmod +x $HOME/.local/bin/volume-drawer.py 2>/dev/null || true
 ```
 
-### 7. Автозапуск шторки громкости
+### `install.sh`
 
 ```bash
-mkdir -p $(dirname $HOME/.config/autostart/volume-drawer.desktop)
-cat > $HOME/.config/autostart/volume-drawer.desktop << 'SCRIPT_EOF'
+#!/usr/bin/env bash
+# ============================================================================
+#  Установщик виджетов рабочего стола Orange Pi Zero 3W (X11 / MATE / GTK3)
+#  Копирует скрипты в ~/.local/bin, ставит автозапуск, проверяет зависимости.
+#
+#  Использование:
+#     ./install.sh                 # установить (зависимости только проверить)
+#     ./install.sh --yes           # доустановить недостающие пакеты через apt
+#     ./install.sh --no-autostart  # не добавлять автозапуск
+#     ./install.sh --run           # сразу запустить виджеты на DISPLAY=:0
+# ============================================================================
+set -euo pipefail
+
+BIN="$HOME/.local/bin"
+AUTOSTART="$HOME/.config/autostart"
+SRC="$(cd "$(dirname "$0")" && pwd)"
+SCRIPTS=(app-carousel-v.py app-carousel.py cpu-temp-float.py volume-drawer.py)
+APT_PKGS=(python3-gi python3-gi-cairo gir1.2-gtk-3.0 python3-pil python3-cairo)
+
+YES=0; DO_AUTOSTART=1; DO_RUN=0
+for arg in "$@"; do
+  case "$arg" in
+    --yes|-y)        YES=1 ;;
+    --no-autostart)  DO_AUTOSTART=0 ;;
+    --run)           DO_RUN=1 ;;
+    -h|--help)       sed -n '2,11p' "$0"; exit 0 ;;
+    *) echo "Неизвестный флаг: $arg (см. --help)"; exit 2 ;;
+  esac
+done
+
+say() { printf '  %s\n' "$*"; }
+
+echo "== 1/4. Проверка зависимостей =="
+missing_pkgs=()
+check_py() { python3 -c "import $1" >/dev/null 2>&1 || { say "✗ нет модуля: $1"; missing_pkgs+=("$2"); }; }
+check_py gi python3-gi
+check_py cairo python3-cairo
+check_py PIL python3-pil
+python3 -c "import gi; gi.require_version('Gtk','3.0'); from gi.repository import Gtk" >/dev/null 2>&1 \
+  || { say "✗ нет GTK3-биндингов"; missing_pkgs+=("gir1.2-gtk-3.0"); }
+command -v pactl >/dev/null 2>&1 || say "⚠ pactl не найден — шторка громкости не сможет менять громкость (пакет pulseaudio-utils или pipewire-pulse)"
+command -v python3 >/dev/null 2>&1 || { echo "Нужен python3"; exit 1; }
+
+if [ ${#missing_pkgs[@]} -gt 0 ]; then
+  say "Не хватает пакетов: ${missing_pkgs[*]}"
+  if [ "$YES" = "1" ]; then
+    say "Устанавливаю через apt…"
+    sudo apt update && sudo apt install -y "${missing_pkgs[@]}"
+  else
+    say "Установи вручную:  sudo apt install -y ${missing_pkgs[*]}"
+    say "или повтори запуск с флагом --yes"
+    exit 1
+  fi
+else
+  say "✓ все нужные модули на месте (gi, cairo, PIL, GTK3)"
+fi
+
+echo "== 2/4. Скрипты → $BIN =="
+mkdir -p "$BIN"
+for f in "${SCRIPTS[@]}"; do
+  if [ -f "$SRC/$f" ]; then
+    install -m 755 "$SRC/$f" "$BIN/$f"
+    say "✓ $f"
+  else
+    say "⚠ нет файла $f — пропускаю"
+  fi
+done
+
+echo "== 3/4. Автозапуск =="
+if [ "$DO_AUTOSTART" = "1" ]; then
+  mkdir -p "$AUTOSTART"
+  for f in "$SRC"/autostart/*.desktop; do
+    [ -f "$f" ] || continue
+    name="$(basename "$f")"
+    sed "s|/home/orangepi|$HOME|g" "$f" > "$AUTOSTART/$name"
+    say "✓ $name (путь → $HOME)"
+  done
+else
+  say "пропущено (--no-autostart)"
+fi
+
+echo "== 4/4. Запуск =="
+if [ "$DO_RUN" = "1" ]; then
+  export DISPLAY="${DISPLAY:-:0}"
+  export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+  for f in app-carousel-v.py cpu-temp-float.py volume-drawer.py; do
+    [ -x "$BIN/$f" ] || continue
+    nohup "$BIN/$f" >/dev/null 2>&1 &
+    say "✓ запущен $f (pid $!)"
+  done
+  say "Остановить:  pkill -f app-carousel-v.py  (и так же для остальных)"
+else
+  say "не запускаю. Вручную:"
+  say "  DISPLAY=:0 XAUTHORITY=\$HOME/.Xauthority $BIN/app-carousel-v.py &"
+  say "  DISPLAY=:0 XAUTHORITY=\$HOME/.Xauthority $BIN/cpu-temp-float.py &"
+  say "  DISPLAY=:0 XAUTHORITY=\$HOME/.Xauthority $BIN/volume-drawer.py &"
+fi
+
+echo
+echo "Готово. Настроить под себя: параметры в начале каждого скрипта"
+echo "(APPS — список ярлыков; CHROMIUM_PROXY — прокси; RETRO_CMD — запуск RetroArch)."
+```
+
+### `autostart/app-carousel.desktop`
+
+```ini
+# Шаблон автозапуска. Путь /home/orangepi подставляется установщиком:
+#   ./install.sh   (вручную: sed "s|/home/orangepi|$HOME|g" файл)
+[Desktop Entry]
+Type=Application
+Name=App Carousel (вертикальная)
+Comment=Виджет-карусель приложений на рабочем столе справа (неоновая комета)
+Exec=/home/orangepi/.local/bin/app-carousel-v.py
+X-GNOME-Autostart-enabled=true
+Terminal=false
+```
+
+### `autostart/cpu-temp-float.desktop`
+
+```ini
+# Шаблон автозапуска. Путь /home/orangepi подставляется установщиком:
+#   ./install.sh   (вручную: sed "s|/home/orangepi|$HOME|g" файл)
+[Desktop Entry]
+Type=Application
+Name=CPU Temp Widget
+Comment=Плавающий виджет температуры CPU
+Exec=/home/orangepi/.local/bin/cpu-temp-float.py
+X-GNOME-Autostart-enabled=true
+Terminal=false
+```
+
+### `autostart/volume-drawer.desktop`
+
+```ini
+# Шаблон автозапуска. Путь /home/orangepi подставляется установщиком:
+#   ./install.sh   (вручную: sed "s|/home/orangepi|$HOME|g" файл)
 [Desktop Entry]
 Type=Application
 Name=Volume Drawer Widget
@@ -1304,6 +1464,6 @@ Comment=Шторка громкости снизу экрана (свайп вв
 Exec=/home/orangepi/.local/bin/volume-drawer.py
 X-GNOME-Autostart-enabled=true
 Terminal=false
-SCRIPT_EOF
-chmod +x $HOME/.config/autostart/volume-drawer.desktop 2>/dev/null || true
 ```
+
+<!-- AUTO-LISTINGS:END -->

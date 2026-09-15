@@ -32,21 +32,33 @@ BG_A = 0.0           # прозрачность подложки (0.0 = фон �
 NEON = (0.55, 1.00, 0.60)   # светлый неоновый зелёный
 MARGIN_RIGHT = 6     # отступ от правого края экрана
 
-XA = os.environ.get("XAUTHORITY", "/home/orangepi/.Xauthority")
+# --- персональные настройки (правь под себя) ---
+CHROMIUM_PROXY = "http://127.0.0.1:7890"  # прокси для Chromium; "" — без прокси (нет FlClash/mihomo)
+CHROMIUM_CACHE = "1073741824"             # размер дискового кэша Chromium, байт (1 ГБ)
+XCURSOR_THEME  = "comet-hidden"           # тема курсора (скрытый курсор-комета); "" — системная
+RETRO_CMD      = "retroarch"              # команда запуска RetroArch (свой путь/скрипт — укажи здесь)
+HOME_DIR       = os.path.expanduser("~")  # домашний каталог пользователя
+
+XA = os.environ.get("XAUTHORITY", os.path.join(HOME_DIR, ".Xauthority"))
 ENV = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0"), "XAUTHORITY": XA}
+
+# команда Chromium собирается из настроек выше
+_chromium = "chromium"
+if XCURSOR_THEME:
+    _chromium = f"env XCURSOR_THEME={XCURSOR_THEME} " + _chromium
+_chromium += f" --disk-cache-size={CHROMIUM_CACHE}"
+if CHROMIUM_PROXY:
+    _chromium += (f" --proxy-server={CHROMIUM_PROXY}"
+                  " --proxy-bypass-list='localhost;127.0.0.1;192.168.*;10.*;<local>'")
 
 # подпись, файл иконки, команда запуска
 APPS = [
-    ("Chromium", "/usr/share/icons/hicolor/256x256/apps/chromium.png",
-     "env XCURSOR_THEME=comet-hidden chromium --disk-cache-size=1073741824 "
-     "--proxy-server=http://127.0.0.1:7890 "
-     "--proxy-bypass-list='localhost;127.0.0.1;192.168.*;10.*;<local>'"),
+    ("Chromium", "/usr/share/icons/hicolor/256x256/apps/chromium.png", _chromium),
     ("Telegram", "/usr/share/pixmaps/telegram.png", "flatpak run org.telegram.desktop"),
     ("Терминал", "/usr/share/icons/Papirus/48x48/apps/gnome-terminal.svg", "mate-terminal"),
     ("Домашняя папка", "/usr/share/icons/mate/256x256/places/user-home.png",
-     "caja /home/orangepi"),
-    ("RetroArch", "/usr/share/pixmaps/retroarch.png",
-     "bash /home/orangepi/.openclaw/workspace/retrogame.sh"),
+     "caja ~"),
+    ("RetroArch", "/usr/share/pixmaps/retroarch.png", RETRO_CMD),
 ]
 
 
