@@ -26,7 +26,11 @@ STEP = 96.0          # шаг между иконками
 ICON = 54            # базовый размер иконки
 BG_A = 0.0           # прозрачность подложки виджета: 0.0 = полностью прозрачный фон
 NEON = (0.55, 1.00, 0.60)   # светлый неоновый зелёный (подсветка активной иконки)
-XA = os.environ.get("XAUTHORITY", "/home/orangepi/.Xauthority")
+# --- персональные настройки (правь под себя) ---
+RETRO_CMD = "retroarch"                  # команда запуска RetroArch (свой путь/скрипт — укажи здесь)
+HOME_DIR  = os.path.expanduser("~")      # домашний каталог пользователя
+
+XA = os.environ.get("XAUTHORITY", os.path.join(HOME_DIR, ".Xauthority"))
 ENV = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0"), "XAUTHORITY": XA}
 
 APPS = [
@@ -36,8 +40,7 @@ APPS = [
      "flatpak run org.telegram.desktop"),
     ("Терминал", "/usr/share/icons/Papirus/48x48/apps/gnome-terminal.svg",
      "mate-terminal"),
-    ("RetroArch", "/usr/share/pixmaps/retroarch.png",
-     "bash /home/orangepi/.openclaw/workspace/retrogame.sh"),
+    ("RetroArch", "/usr/share/pixmaps/retroarch.png", RETRO_CMD),
 ]
 
 

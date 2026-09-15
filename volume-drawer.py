@@ -3,7 +3,6 @@
 # свайп вверх — выдвигается ползунок, 2 с бездействия — прячется.
 import subprocess, sys, time, math
 from PIL import Image, ImageFilter, ImageEnhance
-from Xlib import X as XLIBX
 import gi
 gi.require_version("Gtk", "3.0")
 import cairo
