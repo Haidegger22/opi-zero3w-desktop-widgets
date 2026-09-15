@@ -114,7 +114,7 @@ class CarouselV(Gtk.Window):
         self.connect("button-release-event", self.on_release)
         self.connect("motion-notify-event", self.on_motion)
         self.connect("scroll-event", self.on_scroll)
-        GLib.timeout_add(16, self._animate)   # ~60 fps — плавная комета
+        GLib.timeout_add(33, self._animate)   # ~30 fps — плавная комета, мягче по CPU
 
     def _animate(self):
         if abs(self._target - self._pos) > 0.002:
