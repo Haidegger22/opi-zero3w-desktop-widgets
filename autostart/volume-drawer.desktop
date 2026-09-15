@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Volume Drawer Widget
+Comment=Шторка громкости снизу экрана (свайп вверх)
+Exec=/home/orangepi/.local/bin/volume-drawer.py
+X-GNOME-Autostart-enabled=true
+Terminal=false

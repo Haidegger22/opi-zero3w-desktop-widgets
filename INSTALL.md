@@ -33,7 +33,18 @@ cp cpu-temp-float.py ~/.local/bin/
 chmod +x ~/.local/bin/cpu-temp-float.py
 ```
 
-## Шаг 5. Автозапуск (пути подставятся автоматически)
+## Шаг 5. Шторка громкости (volume-drawer)
+
+```bash
+cp volume-drawer.py ~/.local/bin/
+chmod +x ~/.local/bin/volume-drawer.py
+```
+
+Свайп снизу вверх (или тап по полоске) — выдвигается ползунок громкости
+с тёмным жидким стеклом (как у `cpu-temp-float`). Через 2 с бездействия
+шторка прячется обратно.
+
+## Шаг 6. Автозапуск (пути подставятся автоматически)
 
 ```bash
 mkdir -p ~/.config/autostart
@@ -44,19 +55,22 @@ done
 ls ~/.config/autostart/
 ```
 
-## Шаг 6. Запустить сейчас (без перезагрузки)
+## Шаг 7. Запустить сейчас (без перезагрузки)
 
 ```bash
 DISPLAY=:0 ~/.local/bin/app-carousel-v.py &   # карусель
 DISPLAY=:0 ~/.local/bin/cpu-temp-float.py &   # температура
+DISPLAY=:0 ~/.local/bin/volume-drawer.py &    # шторка громкости
 ```
 
-## Шаг 7. Проверка
+## Шаг 8. Проверка
 
 - Карусель должна появиться **справа по центру** рабочего стола
+- Виджет температуры — **правый нижний угол** рабочего стола
+- Шторка громкости — **полоска внизу по центру**, тап/свайп вверх выдвигает панель
 - Проверить, что запущены:
 ```bash
-pgrep -af "app-carousel-v|cpu-temp-float"
+pgrep -af "app-carousel-v|cpu-temp-float|volume-drawer"
 ```
 - Проверить окно карусели (тип должен быть DOCK):
 ```bash
@@ -75,7 +89,8 @@ DISPLAY=:0 xdotool search --name "app-carousel" | head -1 | xargs -I{} xprop -id
 ```bash
 pkill -f app-carousel-v.py
 pkill -f cpu-temp-float.py
-rm -f ~/.config/autostart/app-carousel.desktop ~/.config/autostart/cpu-temp-float.desktop
+pkill -f volume-drawer.py
+rm -f ~/.config/autostart/app-carousel.desktop ~/.config/autostart/cpu-temp-float.desktop ~/.config/autostart/volume-drawer.desktop
 ```
 ## Полный код файлов (установка без git)
 
@@ -969,3 +984,326 @@ SCRIPT_EOF
 chmod +x $HOME/.config/autostart/cpu-temp-float.desktop 2>/dev/null || true
 ```
 
+
+### 6. Шторка громкости (volume-drawer)
+
+```bash
+mkdir -p $(dirname $HOME/.local/bin/volume-drawer.py)
+cat > $HOME/.local/bin/volume-drawer.py << 'SCRIPT_EOF'
+#!/usr/bin/env python3
+# Шторка громкости снизу экрана: полоска с неоновым ореолом,
+# свайп вверх — выдвигается ползунок, 2 с бездействия — прячется.
+import subprocess, sys, time, math
+from PIL import Image, ImageFilter
+from Xlib import X as XLIBX
+import gi
+gi.require_version("Gtk", "3.0")
+import cairo
+from gi.repository import Gtk, Gdk, GLib, GdkPixbuf
+
+W, H = 300, 104          # окно шторки
+BAR_W, BAR_H = 240, 5    # полоска внизу
+PANEL_H = 74             # высота выдвижной панели
+NEON = (0.55, 1.00, 0.60)
+HIDE_AFTER = 2.0         # с бездействия до автоскрытия
+
+
+def get_volume():
+    try:
+        out = subprocess.run(["pactl", "get-sink-volume", "@DEFAULT_SINK@"],
+                             capture_output=True, text=True, timeout=5).stdout
+        for part in out.split():
+            if part.endswith("%"):
+                return int(part.rstrip("%"))
+    except Exception:
+        pass
+    return 0
+
+
+def set_volume(pct):
+    pct = max(0, min(150, int(pct)))
+    try:
+        subprocess.Popen(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{pct}%"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+    return pct
+
+
+def toggle_mute():
+    subprocess.Popen(["pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle"],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+class Drawer(Gtk.Window):
+    def __init__(self):
+        super().__init__(type=Gtk.WindowType.TOPLEVEL)
+        self.set_app_paintable(True)
+        vis = self.get_screen().get_rgba_visual()   # прозрачность окна (без чёрного фона)
+        if vis:
+            self.set_visual(vis)
+        self.set_decorated(False)
+        self.set_skip_taskbar_hint(True)
+        self.set_skip_pager_hint(True)
+        self.set_keep_above(True)
+        self.set_accept_focus(False)
+        self.set_type_hint(Gdk.WindowTypeHint.DOCK)
+        scr = self.get_screen()
+        self.sw, self.sh = scr.get_width(), scr.get_height()
+        self.vol = get_volume()
+        self.open = 0.0        # 0 = скрыто, 1 = открыто
+        self.target = 0.0
+        self.last_act = 0.0
+        self._vol_t = 0.0
+        self.bg = None          # размытый фон (liquid glass), снимается 1 раз при открытии
+        self._bg_t = 0.0
+        self.drag_vol = False
+        self.connect("draw", self.on_draw)
+        self.connect("realize", self.on_realize)
+        self.connect("map-event", self.on_map)
+        self.move((self.sw - W) // 2, self.sh - H)
+        self.set_default_size(W, H)
+        self.show_all()
+        GLib.timeout_add(16, self.tick)
+
+    def _apply_input(self):
+        try:
+            reg = cairo.Region()
+            if self.open > 0.05:
+                reg.union(cairo.RectangleInt(0, 0, W, H))
+            else:
+                reg.union(cairo.RectangleInt((W - BAR_W) // 2 - 30, H - 26, BAR_W + 60, 26))
+            self.get_window().input_shape_combine_region(reg, 0, 0)
+        except Exception:
+            pass
+
+    def on_realize(self, *_):
+        self._apply_input()
+        try:
+            self.get_window().set_override_redirect(True)
+        except Exception:
+            pass
+
+    def on_map(self, *_):
+        self._apply_input()
+        return False
+
+    def tick(self):
+        if abs(self.target - self.open) > 0.01:
+            self.open += (self.target - self.open) * 0.28
+            self.queue_draw()
+        elif self.open != self.target:
+            self.open = self.target
+            self.queue_draw()
+            self._apply_input()
+        # захват фона один раз при открытии (пока панель не нарисована),
+        # чтобы в снимок не попало само стекло
+        if self.target > 0.5 and self.open < 0.05 and self._bg_t == 0.0:
+            self._bg_t = time.time()
+            GLib.idle_add(self._grab_bg)
+        elif self.target < 0.5:
+            self._bg_t = 0.0
+        if self.open > 0.05:
+            self.queue_draw()
+        if self.target > 0.5 and self.last_act and time.time() - self.last_act > HIDE_AFTER:
+            self.target = 0.0
+            self.last_act = 0.0
+        if not self.drag_vol and not self._vol_t:
+            self._vol_t = time.time()
+        elif not self.drag_vol and time.time() - self._vol_t > 2.0:
+            self._vol_t = time.time()
+            self.vol = get_volume()
+        return True
+
+    def on_draw(self, w, cr):
+        cr.save()
+        cr.set_operator(cairo.OPERATOR_CLEAR)
+        cr.paint()
+        cr.restore()
+        e = self.open
+        dy = PANEL_H * e        # насколько всё поднялось (свайп вверх)
+        # ---- полоска с неоновым ореолом (едет вверх вместе со свайпом) ----
+        bx, by = (W - BAR_W) / 2, H - BAR_H - 8 - dy
+        for grow, al in ((8.0, 0.08), (5.0, 0.16), (2.5, 0.30)):
+            rr(cr, bx - grow, by - grow, BAR_W + 2 * grow, BAR_H + 2 * grow, (BAR_H + 2 * grow) / 2)
+            cr.set_source_rgba(NEON[0], NEON[1], NEON[2], al)
+            cr.fill()
+        rr(cr, bx, by, BAR_W, BAR_H, BAR_H / 2)
+        cr.set_source_rgba(0.88, 1.0, 0.90, 0.95)
+        cr.fill()
+        if e > 0.02:
+            self._draw_panel(cr, e)
+
+    def _grab_bg(self):
+        """Снимок фона под окном + размытие — основа для жидкого стекла."""
+        try:
+            rw = Gdk.get_default_root_window()
+            x, y = self.get_window().get_root_coords(0, 0)
+            pb = Gdk.pixbuf_get_from_window(rw, x, y, W, H)
+            if not pb:
+                return False
+            img = Image.frombytes("RGB", (W, H), pb.get_pixels(), "raw", "RGB",
+                                  pb.get_rowstride())
+            img = img.filter(ImageFilter.GaussianBlur(9))
+            data = img.tobytes()
+            self.bg = GdkPixbuf.Pixbuf.new_from_bytes(
+                GLib.Bytes.new(data), GdkPixbuf.Colorspace.RGB, False, 8, W, H, W * 3)
+        except Exception:
+            pass
+        return False
+
+    def _draw_panel(self, cr, e):
+        # ЖИДКОЕ СТЕКЛО на тёмной основе с объёмом (мягкие переходы между слоями)
+        ph = PANEL_H * e
+        by = H - BAR_H - 8 - PANEL_H * e
+        py = by + BAR_H + 6
+        # 1) тёмный полупрозрачный фон — основа как у cpu-temp-float
+        cr.set_source_rgba(0.08, 0.09, 0.12, 0.72 * e)
+        rr(cr, 16, py, W - 32, ph, 14)
+        cr.fill()
+        # 2) размытый снимок фона — даёт эффект "живого" стекла под панелью
+        if self.bg:
+            cr.save()
+            rr(cr, 16, py, W - 32, ph, 14)
+            cr.clip()
+            Gdk.cairo_set_source_pixbuf(cr, self.bg, 0, 0)
+            cr.paint_with_alpha(0.30 * e)
+            cr.restore()
+        # 3) ОБЩИЙ вертикальный градиент: свет сверху → тень снизу (максимально мягко)
+        # 11 точек: каждая следующая — плавное продолжение предыдущей, без скачков
+        grad = cairo.LinearGradient(0, py, 0, py + ph)
+        grad.add_color_stop_rgba(0.00, 1, 1, 1, 0.22 * e)   # свет у кромки
+        grad.add_color_stop_rgba(0.10, 1, 1, 1, 0.16 * e)   # мягкий спад
+        grad.add_color_stop_rgba(0.22, 1, 1, 1, 0.10 * e)   # продолжение спада
+        grad.add_color_stop_rgba(0.36, 1, 1, 1, 0.05 * e)   # почти 0
+        grad.add_color_stop_rgba(0.50, 1, 1, 1, 0.02 * e)   # еле виден
+        grad.add_color_stop_rgba(0.55, 0, 0, 0, 0.02 * e)   # мягкий старт тени
+        grad.add_color_stop_rgba(0.65, 0, 0, 0, 0.06 * e)   # тень нарастает медленно
+        grad.add_color_stop_rgba(0.75, 0, 0, 0, 0.12 * e)   # плавно
+        grad.add_color_stop_rgba(0.85, 0, 0, 0, 0.18 * e)   # плавно
+        grad.add_color_stop_rgba(0.95, 0, 0, 0, 0.24 * e)   # плавно
+        grad.add_color_stop_rgba(1.00, 0, 0, 0, 0.28 * e)   # тёмная кромка снизу
+        cr.set_source(grad)
+        rr(cr, 16, py, W - 32, ph, 14)
+        cr.fill()
+        # контур панели со свечением (фона нет — ничего не загромождает)
+        for lw, al in ((5.0, 0.10), (3.0, 0.18), (1.5, 0.55)):
+            rr(cr, 16, py, W - 32, ph, 14)
+            cr.set_line_width(lw)
+            cr.set_source_rgba(NEON[0], NEON[1], NEON[2], al * e)
+            cr.stroke()
+        # надпись — со свечением (как название в карусели)
+        cr.select_font_face("Noto Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(13)
+        label = ("Звук выключен" if self.vol == 0 else f"Громкость {self.vol}%")
+        ext = cr.text_extents(label)
+        tx0 = W / 2 - ext.width / 2
+        for off in (1.4, 0.9):
+            cr.set_source_rgba(0.0, 0.06, 0.02, 0.55 * e)     # тёмная обводка — читаемость на любом фоне
+            for dx2, dy2 in ((-off, 0), (off, 0), (0, -off), (0, off)):
+                cr.move_to(tx0 + dx2, py + 26 + dy2)
+                cr.show_text(label)
+        for off in (1.2, 0.8):
+            cr.set_source_rgba(NEON[0], NEON[1], NEON[2], 0.30 * e)
+            for dx2, dy2 in ((-off, 0), (off, 0), (0, -off), (0, off)):
+                cr.move_to(tx0 + dx2, py + 26 + dy2)
+                cr.show_text(label)
+        cr.set_source_rgba(0.94, 1.0, 0.95, 0.97 * e)
+        cr.move_to(tx0, py + 26)
+        cr.show_text(label)
+        tx, ty, tw = 44, py + ph - 26, W - 88
+        rr(cr, tx, ty, tw, 6, 3)
+        cr.set_source_rgba(0.06, 0.12, 0.09, 0.62 * e)   # тёмный трек — виден на любом фоне
+        cr.fill()
+        fill = tw * max(0, min(100, self.vol)) / 100.0
+        if fill > 1:
+            for g, a in ((6.0, 0.12), (3.0, 0.26)):
+                rr(cr, tx - g, ty - g, fill + 2 * g, 6 + 2 * g, 6 + g)
+                cr.set_source_rgba(NEON[0], NEON[1], NEON[2], a * e)
+                cr.fill()
+            rr(cr, tx, ty, fill, 6, 3)
+            cr.set_source_rgba(0.82, 1.0, 0.86, 0.95 * e)
+            cr.fill()
+        cr.arc(tx + fill, ty + 3, 8, 0, 2 * math.pi)
+        for g, a in ((7.0, 0.15), (3.5, 0.30)):
+            cr.arc(tx + fill, ty + 3, 8 + g, 0, 2 * math.pi)
+            cr.set_source_rgba(NEON[0], NEON[1], NEON[2], a * e)
+            cr.fill()
+        cr.arc(tx + fill, ty + 3, 7, 0, 2 * math.pi)
+        cr.set_source_rgba(0.92, 1.0, 0.94, 0.96 * e)
+        cr.fill()
+
+    def _vol_from_x(self, x):
+        tx, tw = 44, W - 88
+        pct = (x - tx) / tw * 100.0
+        return set_volume(round(max(0, min(100, pct)) / 5) * 5)
+
+    def on_press(self, w, ev):
+        self.target = 1.0
+        self.last_act = time.time()
+        self._apply_input()
+        if self.open > 0.5 or ev.y < H - 40:
+            self.drag_vol = True
+            self.vol = self._vol_from_x(ev.x)
+            self.queue_draw()
+        return True
+
+    def on_motion(self, w, ev):
+        if self.drag_vol:
+            self.last_act = time.time()
+            self.vol = self._vol_from_x(ev.x)
+            self.queue_draw()
+        return True
+
+    def on_release(self, w, ev):
+        self.drag_vol = False
+        self.last_act = time.time()
+        return True
+
+
+def rr(cr, x, y, w, h, r):
+    if w <= 0 or h <= 0:
+        return
+    r = min(r, w / 2, h / 2)
+    cr.new_sub_path()
+    cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+    cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+    cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+    cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+    cr.close_path()
+
+
+def main():
+    d = Drawer()
+    d.add_events(Gdk.EventMask.BUTTON_PRESS_MASK
+                 | Gdk.EventMask.BUTTON_RELEASE_MASK
+                 | Gdk.EventMask.POINTER_MOTION_MASK)
+    d.connect("button-press-event", d.on_press)
+    d.connect("motion-notify-event", d.on_motion)
+    d.connect("button-release-event", d.on_release)
+    d.connect("destroy", Gtk.main_quit)
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    main()
+
+SCRIPT_EOF
+chmod +x $HOME/.local/bin/volume-drawer.py 2>/dev/null || true
+```
+
+### 7. Автозапуск шторки громкости
+
+```bash
+mkdir -p $(dirname $HOME/.config/autostart/volume-drawer.desktop)
+cat > $HOME/.config/autostart/volume-drawer.desktop << 'SCRIPT_EOF'
+[Desktop Entry]
+Type=Application
+Name=Volume Drawer Widget
+Comment=Шторка громкости снизу экрана (свайп вверх)
+Exec=/home/orangepi/.local/bin/volume-drawer.py
+X-GNOME-Autostart-enabled=true
+Terminal=false
+SCRIPT_EOF
+chmod +x $HOME/.config/autostart/volume-drawer.desktop 2>/dev/null || true
+```
