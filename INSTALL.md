@@ -1365,8 +1365,8 @@ backup() {
 }
 
 echo "== 0/4. Проверка констант под свою систему =="
-say "RETRO_CMD      = $(sed -n 's/^RETRO_CMD *= *"\(.*\)".*/\1/p' app-carousel-v.py | head -1)  (команда запуска RetroArch)"
-say "CHROMIUM_PROXY = $(sed -n 's/^CHROMIUM_PROXY *= *"\(.*\)".*/\1/p' app-carousel-v.py | head -1)"
+say "RETRO_CMD      = $(sed -n 's/^RETRO_CMD *= *"\([^"]*\)".*/\1/p' app-carousel-v.py | head -1)  (команда запуска RetroArch)"
+say "CHROMIUM_PROXY = $(sed -n 's/^CHROMIUM_PROXY *= *"\([^"]*\)".*/\1/p' app-carousel-v.py | head -1)"
 say "⚠ Если RetroArch у тебя запускается своим скриптом — впиши его в RETRO_CMD"
 say "  ПЕРЕД запуском установщика, иначе ярлык будет запускать голый retroarch."
 say "  Уже установленные файлы будут заменены, но с бэкапом рядом (.bak-дата)."
