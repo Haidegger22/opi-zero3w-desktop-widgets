@@ -1,3 +1,5 @@
+# Шаблон автозапуска. Путь /home/orangepi подставляется установщиком:
+#   ./install.sh   (вручную: sed "s|/home/orangepi|$HOME|g" файл)
 [Desktop Entry]
 Type=Application
 Name=App Carousel (вертикальная)

@@ -69,34 +69,48 @@
 
 ## Требования
 
-- Python 3 с PyGObject (`python3-gi`), Cairo (`python3-cairo`)
+- Python 3 с PyGObject (`python3-gi`), Cairo (`python3-cairo`), Pillow (`python3-pil` — размытие «жидкого стекла» в шторке)
 - GTK 3, X-сервер (`:0`) и EWMH-совместимый WM (marco / MATE)
 - Для SVG-иконок: `librsvg2-common`
+- Для громкости: `pactl` — пакет `pulseaudio-utils` (на PipeWire: `pipewire-pulse`)
 - Опционально: `xdotool`, `scrot` (диагностика)
+
+Всё сразу проверит и (с `--yes`) доустановит установщик: `./install.sh --yes`
 
 ## Установка
 
-**Быстрый путь (copy-paste всех команд + полный код файлов):** см. **[INSTALL.md](INSTALL.md)** —
-просто вставляй блоки в терминал по порядку.
+```bash
+git clone https://github.com/Haidegger22/opi-zero3w-desktop-widgets.git
+cd opi-zero3w-desktop-widgets
+./install.sh            # проверит зависимости, скопирует скрипты, поставит автозапуск
+./install.sh --run      # …и сразу запустит виджеты
+```
 
-Ниже — что именно делается:
+Флаги: `--yes` — доустановить недостающие пакеты через apt, `--no-autostart` — без автозапуска,
+`--run` — запустить сейчас.
+
+<details>
+<summary>Ручная установка (без установщика)</summary>
 
 ```bash
 # 1. Скрипты
 mkdir -p ~/.local/bin
-cp app-carousel-v.py app-carousel.py cpu-temp-float.py volume-drawer.py ~/.local/bin/
-chmod +x ~/.local/bin/app-carousel-v.py ~/.local/bin/app-carousel.py \
-         ~/.local/bin/cpu-temp-float.py ~/.local/bin/volume-drawer.py
+install -m 755 app-carousel-v.py app-carousel.py cpu-temp-float.py volume-drawer.py ~/.local/bin/
 
-# 2. Автозапуск (app-carousel.desktop уже указывает на вертикальную версию)
+# 2. Автозапуск — с подстановкой своего $HOME вместо /home/orangepi
 mkdir -p ~/.config/autostart
-cp autostart/*.desktop ~/.config/autostart/
+for f in autostart/*.desktop; do
+  sed "s|/home/orangepi|$HOME|g" "$f" > ~/.config/autostart/"$(basename "$f")"
+done
 
 # 3. Запустить сейчас (в фоне)
 DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority ~/.local/bin/app-carousel-v.py &
 DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority ~/.local/bin/cpu-temp-float.py &
 DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority ~/.local/bin/volume-drawer.py &
 ```
+</details>
+
+Пошаговая инструкция с проверкой и откатом — в **[INSTALL.md](INSTALL.md)**.
 
 ## Управление каруселью
 
@@ -160,8 +174,13 @@ CX = W - 66          # центр иконок (у правого края)
 NEON = (0.55, 1.00, 0.60)   # цвет неона
 MARGIN_RIGHT = 6     # отступ от правого края экрана
 
+CHROMIUM_PROXY = "http://127.0.0.1:7890"  # прокси для Chromium; "" — без прокси (нет FlClash/mihomo)
+CHROMIUM_CACHE = "1073741824"             # дисковый кэш Chromium, байт
+XCURSOR_THEME  = "comet-hidden"           # тема скрытого курсора; "" — системная
+RETRO_CMD      = "retroarch"              # команда запуска RetroArch (свой путь — укажи здесь)
+
 APPS = [             # (подпись, файл иконки, команда запуска)
-    ("Chromium", ".../chromium.png", "chromium"),
+    ("Chromium", ".../chromium.png", _chromium),   # команда собирается из настроек выше
     ...
 ]
 ```
