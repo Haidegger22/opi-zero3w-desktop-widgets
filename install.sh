@@ -30,6 +30,22 @@ done
 
 say() { printf '  %s\n' "$*"; }
 
+# Резервная копия файла, который сейчас перезапишем (установщик НЕ должен терять настройки)
+backup() {
+  local f="$1" stamp
+  [ -e "$f" ] || return 0
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  cp -a "$f" "$f.bak-$stamp"
+  say "↳ бэкап: $(basename "$f").bak-$stamp"
+}
+
+echo "== 0/4. Проверка констант под свою систему =="
+say "RETRO_CMD      = $(sed -n 's/^RETRO_CMD *= *"\(.*\)".*/\1/p' app-carousel-v.py | head -1)  (команда запуска RetroArch)"
+say "CHROMIUM_PROXY = $(sed -n 's/^CHROMIUM_PROXY *= *"\(.*\)".*/\1/p' app-carousel-v.py | head -1)"
+say "⚠ Если RetroArch у тебя запускается своим скриптом — впиши его в RETRO_CMD"
+say "  ПЕРЕД запуском установщика, иначе ярлык будет запускать голый retroarch."
+say "  Уже установленные файлы будут заменены, но с бэкапом рядом (.bak-дата)."
+
 echo "== 1/4. Проверка зависимостей =="
 missing_pkgs=()
 check_py() { python3 -c "import $1" >/dev/null 2>&1 || { say "✗ нет модуля: $1"; missing_pkgs+=("$2"); }; }
@@ -59,6 +75,10 @@ echo "== 2/4. Скрипты → $BIN =="
 mkdir -p "$BIN"
 for f in "${SCRIPTS[@]}"; do
   if [ -f "$SRC/$f" ]; then
+    if [ -e "$BIN/$f" ] && ! cmp -s "$SRC/$f" "$BIN/$f"; then
+      say "⚠ $f отличается от версии в репозитории — сохраняю бэкап"
+    fi
+    backup "$BIN/$f"
     install -m 755 "$SRC/$f" "$BIN/$f"
     say "✓ $f"
   else
@@ -72,6 +92,7 @@ if [ "$DO_AUTOSTART" = "1" ]; then
   for f in "$SRC"/autostart/*.desktop; do
     [ -f "$f" ] || continue
     name="$(basename "$f")"
+    backup "$AUTOSTART/$name"
     sed "s|/home/orangepi|$HOME|g" "$f" > "$AUTOSTART/$name"
     say "✓ $name (путь → $HOME)"
   done
