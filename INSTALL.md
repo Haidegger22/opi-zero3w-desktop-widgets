@@ -38,6 +38,12 @@ sudo apt install -y python3-gi python3-gi-cairo gir1.2-gtk-3.0 python3-pil librs
 sudo apt install -y pulseaudio-utils      # или pipewire-pulse
 ```
 
+Опционально (включает «сон» карусели, см. Шаг 7):
+
+```bash
+sudo apt install -y python3-xlib
+```
+
 ### Шаг 2. Скачать репозиторий
 
 ```bash
@@ -85,11 +91,40 @@ pgrep -af "app-carousel-v|cpu-temp-float|volume-drawer"
 DISPLAY=:0 xdotool search --name "app-carousel" | head -1 | xargs -I{} xprop -id {} _NET_WM_WINDOW_TYPE
 ```
 
+### Шаг 7 (опционально). Сон карусели — анимация только когда виджет реально виден
+
+Если установлен `python3-xlib`, карусель каждые 220 мс проверяет по стеку окон X11, не
+перекрыта ли она чужим окном. Перекрыта — полностью перестаёт перерисовываться (карусель
+закрыта окном, а Xorg при этом не жжёт CPU на полупрозрачных слоях). Фаза кометы считается
+по «времени без сна», поэтому после пробуждения анимация продолжается ровно с того места,
+где замерла — без прыжка.
+
+Замер на Orange Pi Zero 3W (15 с на состояние, по `/proc`):
+
+| Состояние | Карусель, 1 ядро | Xorg, 1 ядро | Вся система, 8 ядер |
+|---|---|---|---|
+| рабочий стол открыт (анимация) | 31,0% | 83,9% | 19,6% |
+| перекрыта окном (сон) | **1,7%** | 21,1% | 7,9% |
+
+Переключение видно по выводу процесса (или в `journalctl`, если виджет запущен юнитом):
+
+```
+[carousel] рабочий стол закрыт — сон
+[carousel] рабочий стол открыт — анимация
+```
+
+Выключатель сна — переменная окружения: `CAROUSEL_NO_SLEEP=1 ~/.local/bin/app-carousel-v.py`.
+
+Без `python3-xlib` виджет просто работает как раньше (импорт обёрнут в `try`), ошибок не будет.
+Второй экземпляр не запустится — защита через `flock` на `$XDG_RUNTIME_DIR/app-carousel-v.lock`.
+
 ---
 
 ## Важно
 
 - Требуется **X11** (не Wayland) и рабочий стол MATE.
+- **Сон карусели** (см. Шаг 7) требует `python3-xlib`; это единственная необязательная
+  зависимость — без неё виджет рисуется постоянно, как в прежних версиях.
 - Chromium открывается **через прокси** `127.0.0.1:7890` (FlClashX/mihomo) — порт задаётся
   константой `CHROMIUM_PROXY` в начале `app-carousel-v.py`. **Если прокси у тебя нет — поставь пустую
   строку** `CHROMIUM_PROXY = ""`, иначе Chromium не сможет открывать страницы.
@@ -138,6 +173,11 @@ unzip main.zip && cd opi-zero3w-desktop-widgets-main
 Окно типа DOCK + «ниже всех окон»: не исчезает при «показать рабочий стол»
 (Fn+Enter), окна приложений перекрывают виджет.
 
+ЭКОНОМИЯ CPU: если виджет перекрыт другим окном (рабочий стол не виден),
+анимация замирает — таймер отрисовки не дёргает queue_draw, Xorg не
+перерисовывает полупрозрачные слои. Как только рабочий стол снова открыт,
+анимация продолжается с той же фазы (без прыжка).
+
 Управление:
   • колесо мыши / стрелки ⌃⌄   — прокрутка
   • свайп пальцем (вертикально) — прокрутка (следует за пальцем)
@@ -147,14 +187,27 @@ unzip main.zip && cd opi-zero3w-desktop-widgets-main
 """
 import os
 import subprocess
+import sys
 import time
 import math
+import fcntl
 
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gtk, Gdk, GLib, GdkPixbuf
 import cairo
+
+try:
+    gi.require_version("GdkX11", "3.0")
+    from gi.repository import GdkX11
+except Exception:
+    GdkX11 = None
+
+try:
+    from Xlib import display as xdisplay, X as XX
+except Exception:
+    xdisplay = None
 
 # ---- параметры ----
 W, H = 240, 430      # вертикальное окно (расширено влево — под горизонтальное название)
@@ -184,6 +237,27 @@ if CHROMIUM_PROXY:
     _chromium += (f" --proxy-server={CHROMIUM_PROXY}"
                   " --proxy-bypass-list='localhost;127.0.0.1;192.168.*;10.*;<local>'")
 
+NO_SLEEP = os.environ.get("CAROUSEL_NO_SLEEP") == "1"   # 1 = не засыпать никогда
+FPS_MS = 33            # ~30 fps — плавная комета, мягче по CPU
+WATCH_MS = 220         # как часто проверяем, закрыт ли рабочий стол
+
+# защита от второго экземпляра (автозапуск + ручной / сервисом)
+LOCK_PATH = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "app-carousel-v.lock")
+_lock_fh = None
+
+
+def single_instance():
+    """True — мы единственный экземпляр; False — уже запущен, надо выйти."""
+    global _lock_fh
+    try:
+        _lock_fh = open(LOCK_PATH, "w")
+        fcntl.flock(_lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _lock_fh.write(str(os.getpid()))
+        _lock_fh.flush()
+        return True
+    except Exception:
+        return False
+
 # подпись, файл иконки, команда запуска
 APPS = [
     ("Chromium", "/usr/share/icons/hicolor/256x256/apps/chromium.png", _chromium),
@@ -191,8 +265,7 @@ APPS = [
     ("Терминал", "/usr/share/icons/Papirus/48x48/apps/gnome-terminal.svg", "mate-terminal"),
     ("Домашняя папка", "/usr/share/icons/mate/256x256/places/user-home.png",
      "caja ~"),
-    ("RetroArch", "/usr/share/pixmaps/retroarch.png", RETRO_CMD),
-]
+    ("RetroArch", "/usr/share/pixmaps/retroarch.png", RETRO_CMD),]
 
 
 def rounded_rect(cr, x, y, w, h, r):
@@ -250,6 +323,14 @@ class CarouselV(Gtk.Window):
         self._start_pos = 0.0
         self._zones = []
 
+        # --- сон, когда рабочий стол закрыт другим окном ---
+        self._xdisp = None          # отдельное X-соединение для проверки перекрытия
+        self._xroot = None
+        self._xid = None
+        self._sleeping = False
+        self._pause_start = None
+        self._paused_total = 0.0    # сколько времени проспали (сдвиг фазы кометы)
+
         self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK |
                         Gdk.EventMask.BUTTON_RELEASE_MASK |
                         Gdk.EventMask.POINTER_MOTION_MASK |
@@ -259,9 +340,100 @@ class CarouselV(Gtk.Window):
         self.connect("button-release-event", self.on_release)
         self.connect("motion-notify-event", self.on_motion)
         self.connect("scroll-event", self.on_scroll)
-        GLib.timeout_add(33, self._animate)   # ~30 fps — плавная комета, мягче по CPU
+        GLib.timeout_add(FPS_MS, self._animate)   # ~30 fps — плавная комета, мягче по CPU
+        GLib.timeout_add(WATCH_MS, self._watch)   # следим, виден ли рабочий стол
 
+    # ---- проверка: перекрыт ли виджет другим окном ----
+    def _now(self):
+        """Время анимации: не считает время сна → комета продолжает с той же фазы."""
+        if self._pause_start is not None:
+            return self._pause_start - self._paused_total
+        return time.time() - self._paused_total
+
+    def _init_x(self):
+        if xdisplay is None or NO_SLEEP:
+            return False
+        try:
+            gw = self.get_window()
+            if gw is None:
+                return False
+            self._xid = gw.get_xid()
+            self._xdisp = xdisplay.Display()
+            self._xroot = self._xdisp.screen().root
+            return True
+        except Exception:
+            self._xdisp = None
+            self._xroot = None
+            self._xid = None
+            return False
+
+    def _occluded(self):
+        """True — над нами (в нашем прямоугольнике) лежит видимое чужое окно."""
+        if NO_SLEEP:
+            return False
+        if self._xid is None and not self._init_x():
+            return False
+        try:
+            root = self._xroot
+            kids = root.query_tree().children
+            ids = [c.id for c in kids]
+
+            # наше окно может быть вложено в рамку WM — поднимаемся до ребёнка root
+            w = self._xdisp.create_resource_object("window", self._xid)
+            for _ in range(5):
+                if w.query_tree().parent.id == root.id:
+                    break
+                w = w.query_tree().parent
+            if w.id not in ids:
+                return False        # себя не нашли — считаем, что видно
+            idx = ids.index(w.id)
+
+            g = w.get_geometry()
+            # ВАЖНО: в python-xlib метод вызывается у ОКНА-ПРИЁМНИКА
+            # (root.translate_coords(w, 0, 0) = где лежит (0,0) окна w в root)
+            c = root.translate_coords(w, 0, 0)
+            x0, y0 = c.x, c.y
+            x1, y1 = x0 + g.width, y0 + g.height
+
+            for other in kids[idx + 1:]:          # только то, что ВЫШЕ нас
+                try:
+                    a = other.get_attributes()
+                    if a.map_state != XX.IsViewable:
+                        continue
+                    g2 = other.get_geometry()
+                    # всплывающие мелочи (подсказки/меню) не считаем за окно
+                    if a.override_redirect and g2.width * g2.height < (x1 - x0) * (y1 - y0):
+                        continue
+                    c2 = root.translate_coords(other, 0, 0)
+                except Exception:
+                    continue
+                if (c2.x < x1 and c2.x + g2.width > x0 and
+                        c2.y < y1 and c2.y + g2.height > y0):
+                    return True
+            return False
+        except Exception:
+            # X-соединение могло отвалиться — пересоздадим при следующей проверке
+            self._xid = None
+            self._xdisp = None
+            return False
+
+    def _watch(self):
+        occ = self._occluded()
+        if occ != self._sleeping:
+            self._sleeping = occ
+            if occ:
+                self._pause_start = time.time()
+                print("[carousel] рабочий стол закрыт — сон", flush=True)
+            else:
+                if self._pause_start is not None:
+                    self._paused_total += time.time() - self._pause_start
+                    self._pause_start = None
+                self.queue_draw()
+                print("[carousel] рабочий стол открыт — анимация", flush=True)
+        return True
     def _animate(self):
+        if self._sleeping:
+            return True            # спим: не рисуем вообще, CPU только на проверку
         if abs(self._target - self._pos) > 0.002:
             self._pos += (self._target - self._pos) * 0.22
         elif self._pos != self._target:
@@ -279,7 +451,8 @@ class CarouselV(Gtk.Window):
         cx = CX                 # иконки — у правого края виджета
         cy = H / 2.0
         self._zones = []
-        pulse = 0.85 + 0.15 * math.sin(time.time() * 2.4)
+        now = self._now()       # время без сна — после пробуждения фаза продолжается
+        pulse = 0.85 + 0.15 * math.sin(now * 2.4)
         gc = NEON
 
         # ---- НЕОНОВОЕ КОЛЬЦО вокруг центральной иконки (стиль «F.R.I.D.A.Y.») ----
@@ -290,7 +463,7 @@ class CarouselV(Gtk.Window):
         cr.arc(cx, cy, R, 0, 2 * math.pi)
         cr.stroke()
         # положение «головы» кометы — источник света
-        a0 = (time.time() * 1.15) % (2 * math.pi)
+        a0 = (now * 1.15) % (2 * math.pi)
         light_x = cx + R * math.cos(a0)
         light_y = cy + R * math.sin(a0)
 
@@ -487,6 +660,9 @@ class CarouselV(Gtk.Window):
 
 
 if __name__ == "__main__":
+    if not single_instance():
+        print("[carousel] уже запущен — выходим", flush=True)
+        sys.exit(0)
     win = CarouselV()
     win.connect("destroy", Gtk.main_quit)
     win.show_all()
