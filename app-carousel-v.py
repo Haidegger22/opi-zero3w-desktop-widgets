@@ -53,6 +53,7 @@ MARGIN_RIGHT = 6     # отступ от правого края экрана
 # --- персональные настройки (правь под себя) ---
 CHROMIUM_PROXY = "http://127.0.0.1:7890"  # прокси для Chromium; "" — без прокси (нет FlClash/mihomo)
 CHROMIUM_CACHE = "1073741824"             # размер дискового кэша Chromium, байт (1 ГБ)
+CHROMIUM_DEBUG_PORT = 9222                # отладочный порт (CDP) для инструментов; 0 — выключить
 XCURSOR_THEME  = "comet-hidden"           # тема курсора (скрытый курсор-комета); "" — системная
 RETRO_CMD      = "retroarch"              # команда запуска RetroArch (свой путь/скрипт — укажи здесь)
 HOME_DIR       = os.path.expanduser("~")  # домашний каталог пользователя
@@ -68,6 +69,12 @@ _chromium += f" --disk-cache-size={CHROMIUM_CACHE}"
 if CHROMIUM_PROXY:
     _chromium += (f" --proxy-server={CHROMIUM_PROXY}"
                   " --proxy-bypass-list='localhost;127.0.0.1;192.168.*;10.*;<local>'")
+if CHROMIUM_DEBUG_PORT:
+    # Без этих флагов Chromium недоступен по CDP (порт 9222) — ломается поиск через браузер
+    # и чтение страниц с логинами. С флагами порт живёт и после перезагрузки, т.к. браузер
+    # запускается именно из карусели.
+    _chromium += (f" --remote-debugging-port={CHROMIUM_DEBUG_PORT}"
+                  " --remote-allow-origins=*")
 
 NO_SLEEP = os.environ.get("CAROUSEL_NO_SLEEP") == "1"   # 1 = не засыпать никогда
 FPS_MS = 33            # ~30 fps — плавная комета, мягче по CPU
