@@ -227,7 +227,7 @@ CHROMIUM_PROXY = "http://127.0.0.1:7890"  # прокси для Chromium; "" —
 CHROMIUM_CACHE = "1073741824"             # размер дискового кэша Chromium, байт (1 ГБ)
 CHROMIUM_DEBUG_PORT = 9222                # отладочный порт (CDP) для инструментов; 0 — выключить
 XCURSOR_THEME  = "comet-hidden"           # тема курсора (скрытый курсор-комета); "" — системная
-RETRO_CMD      = "retroarch"              # команда запуска RetroArch (свой путь/скрипт — укажи здесь)
+RETRO_CMD      = "bash ~/.openclaw/workspace/retrogame.sh"        # запуск игрового меню со списком игр (не голый retroarch)
 HOME_DIR       = os.path.expanduser("~")  # домашний каталог пользователя
 
 XA = os.environ.get("XAUTHORITY", os.path.join(HOME_DIR, ".Xauthority"))

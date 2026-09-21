@@ -51,11 +51,11 @@ NEON = (0.55, 1.00, 0.60)   # светлый неоновый зелёный
 MARGIN_RIGHT = 6     # отступ от правого края экрана
 
 # --- персональные настройки (правь под себя) ---
-CHROMIUM_PROXY = "http://127.0.0.1:7890"  # прокси для Chromium; "" — без прокси (нет FlClash/mihomo)
+CHROMIUM_PROXY = "http://127.0.0.1:9697"  # прокси для Chromium; "" — без прокси (нет FlClash/mihomo)
 CHROMIUM_CACHE = "1073741824"             # размер дискового кэша Chromium, байт (1 ГБ)
 CHROMIUM_DEBUG_PORT = 9222                # отладочный порт (CDP) для инструментов; 0 — выключить
 XCURSOR_THEME  = "comet-hidden"           # тема курсора (скрытый курсор-комета); "" — системная
-RETRO_CMD      = "retroarch"              # команда запуска RetroArch (свой путь/скрипт — укажи здесь)
+RETRO_CMD      = "bash /home/orangepi/.openclaw/workspace/retrogame.sh"  # запуск игрового меню со списком игр (не голый retroarch)
 HOME_DIR       = os.path.expanduser("~")  # домашний каталог пользователя
 
 XA = os.environ.get("XAUTHORITY", os.path.join(HOME_DIR, ".Xauthority"))
